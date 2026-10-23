@@ -1,7 +1,8 @@
 # net: networking for tesseraOS
 
 Status: **plan with stubs**. Nothing here sends or receives a packet yet. Every stub returns
-`NET_ERR_UNSUPPORTED`, so callers can be written and tested before the real code exists.
+`NET_ERR_UNSUPPORTED`, so callers can be written and tested before the real code exists. Decisions
+are recorded below; the config check in `net_service_start` is real code.
 
 Master plan: enderman-claude/tesseraOS#1. Related: tessera `docs/spec/layers.md` (network is an
 L7 service that reaches hardware only through IPC), `docs/spec/driver_classes.md` (a network card
@@ -50,19 +51,32 @@ A sockets-style surface, so a libc port (oxinit, musl) can map `socket`, `bind`,
 - Paging, so buffers have known physical addresses (M2 in the master plan).
 - IPC endpoints (L2) for the service interface.
 
-## Decisions (open)
+## Decisions
 
-1. **TCP/IP stack.** Write our own, or port an open-source stack? Proposed: port **lwIP** (BSD
-   licence, built for small embedded targets). It would be a submodule under `third_party/`, like zstd
-   in tessera. Our code would be the driver and the glue. Not decided.
-2. **Scope of the first real milestone.** Proposed: stop at N2 (ARP and ICMP) before any transport.
-3. **Socket model.** Sockets-style calls over IPC (proposed), or a raw frame API only?
-4. **Virtio transport.** Legacy virtio-pci (simpler, what QEMU defaults to with `-device virtio-net-pci`)
-   or modern virtio 1.0 with capabilities? Proposed: modern, since QEMU supports it.
-5. **Addressing.** Static IP from the manifest first, or DHCP at N2? Proposed: static first.
-6. **Who owns the device.** Only the net service, or can apps hold a raw NIC capability?
-   Proposed: only the net service.
-7. **Packet buffers.** Fixed pool allocated at start-up (proposed), or dynamic?
+Answers from the project owner, recorded here. Each is implemented in the stubs as noted.
+
+1. **Stack: leverage open source.** The IP stack is **lwIP 2.2.1** (BSD-3-Clause), pinned as a
+   submodule at `third_party/lwip`. Our code is the NIC driver, the glue to the service, and the
+   IPC interface. Integration starts at N2. Nothing is compiled from it yet.
+2. **Standards.** "Whatever meets modern standards" is recorded as the requirement on the stack.
+   **To confirm:** the question asked for the scope of the first milestone (see below), and this
+   answer does not settle that. Until it is confirmed, the first real milestone stays at N2, as
+   proposed.
+3. **Socket model.** Sockets-style calls over IPC (`include/net/service.h`).
+4. **Hardware: generic first.** The generic target is virtio-net over modern virtio 1.x. Specific
+   hardware has stubs only, so the interface covers it, but no driver is written
+   (`src/driver/wifi_stub.c`). Wi-Fi is therefore "supported" at the interface level and not in
+   practice.
+5. **Addressing: static, DHCP, or both.** `enum net_addr_mode` has `STATIC`, `DHCP` and `BOTH`.
+   `BOTH` tries DHCP first and falls back to the static address. The mode comes from the manifest.
+   Config checks run at start-up (`net_service_start`).
+6. **Device ownership (my call).** Only the net service owns the NIC. Apps reach the network only
+   through socket calls over IPC. A raw device capability would let one app read another app's
+   traffic, and sockets cover every use the stack needs.
+7. **Packet buffers (my call).** A fixed pool allocated at start-up: 64 receive and 64 transmit
+   buffers of 2048 bytes (`include/net/net.h`). Fixed pools make memory use predictable and avoid
+   allocation in the receive path. The sizes are a starting point, to be revisited with the first
+   real driver.
 
 ## Tests
 

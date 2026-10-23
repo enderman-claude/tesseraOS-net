@@ -4,18 +4,32 @@
 #include "net/service.h"
 
 struct net_service {
-    net_ipv4 address;
+    net_config cfg;
 };
 
-int net_service_start(net_service **out, net_ipv4 address) {
-    if (out == NULL) {
+/* Config checks, so bad manifests fail at start-up rather than at first use. */
+static int config_valid(const net_config *cfg) {
+    switch (cfg->mode) {
+    case NET_ADDR_STATIC:
+        return cfg->static_ip != 0 && cfg->netmask != 0;
+    case NET_ADDR_DHCP:
+        return 1;
+    case NET_ADDR_BOTH:
+        return cfg->static_ip != 0 && cfg->netmask != 0;   /* fallback must be complete */
+    default:
+        return 0;
+    }
+}
+
+int net_service_start(net_service **out, const net_config *cfg) {
+    if (out == NULL || cfg == NULL || !config_valid(cfg)) {
         return NET_ERR_INVALID;
     }
     net_service *s = calloc(1, sizeof *s);
     if (s == NULL) {
         return NET_ERR_NOMEM;
     }
-    s->address = address;
+    s->cfg = *cfg;
     *out = s;
     return NET_ERR_UNSUPPORTED;   /* stub: no driver is started yet */
 }

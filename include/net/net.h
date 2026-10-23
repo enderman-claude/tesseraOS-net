@@ -31,4 +31,27 @@ typedef struct net_addr {
     uint16_t port;             /* host byte order */
 } net_addr;
 
+/* How the service gets its IPv4 address. Set in the service manifest.
+ * STATIC: use static_ip, netmask and gateway only.
+ * DHCP:   ask a DHCP server; static fields are ignored.
+ * BOTH:   try DHCP first; if no lease arrives in time, use the static fields. */
+enum net_addr_mode {
+    NET_ADDR_STATIC = 1,
+    NET_ADDR_DHCP = 2,
+    NET_ADDR_BOTH = 3,
+};
+
+typedef struct net_config {
+    enum net_addr_mode mode;
+    net_ipv4 static_ip;        /* required for STATIC, and as the fallback for BOTH */
+    net_ipv4 netmask;
+    net_ipv4 gateway;
+} net_config;
+
+/* Fixed pools, allocated once at start-up (decision 7). Sizes are a starting point and are
+ * revisited with the first real driver. */
+#define NET_RX_POOL 64u
+#define NET_TX_POOL 64u
+#define NET_BUF_SIZE 2048u
+
 #endif

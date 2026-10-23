@@ -1,5 +1,6 @@
-/* Host tests for the networking stubs. Each stub must report NET_ERR_UNSUPPORTED (or
- * NET_ERR_INVALID for bad arguments). Exit 0 means every check passed. */
+/* Host tests for the networking stubs. Each stub reports NET_ERR_UNSUPPORTED, or
+ * NET_ERR_INVALID for bad arguments. Config validation is real code, so it is tested fully.
+ * Exit 0 means every check passed. */
 #include <stdio.h>
 
 #include "net/driver.h"
@@ -16,16 +17,20 @@ static int failures;
         }                                                                 \
     } while (0)
 
-static void test_driver_stub(void) {
-    const net_driver *d = net_driver_virtio();
-    CHECK(d != NULL && d->name != NULL, "driver table present");
+static void check_driver_stubs(const net_driver *d, const char *which) {
     net_mac mac;
     uint8_t frame[64] = { 0 };
     uint8_t buf[NET_MAX_FRAME];
-    CHECK(d->open(d->ctx) == NET_ERR_UNSUPPORTED, "driver open is a stub");
-    CHECK(d->mac(d->ctx, &mac) == NET_ERR_UNSUPPORTED, "driver mac is a stub");
-    CHECK(d->send(d->ctx, frame, sizeof frame) == NET_ERR_UNSUPPORTED, "driver send is a stub");
-    CHECK(d->recv(d->ctx, buf, sizeof buf) == NET_ERR_UNSUPPORTED, "driver recv is a stub");
+    CHECK(d != NULL && d->name != NULL, which);
+    CHECK(d->open(d->ctx) == NET_ERR_UNSUPPORTED, which);
+    CHECK(d->mac(d->ctx, &mac) == NET_ERR_UNSUPPORTED, which);
+    CHECK(d->send(d->ctx, frame, sizeof frame) == NET_ERR_UNSUPPORTED, which);
+    CHECK(d->recv(d->ctx, buf, sizeof buf) == NET_ERR_UNSUPPORTED, which);
+}
+
+static void test_driver_stubs(void) {
+    check_driver_stubs(net_driver_virtio(), "virtio (generic) driver stub reports unsupported");
+    check_driver_stubs(net_driver_wifi_stub(), "wifi driver stub reports unsupported");
 }
 
 static void test_stack_stub(void) {
@@ -43,9 +48,48 @@ static void test_stack_stub(void) {
     net_stack_free(s);
 }
 
-static void test_service_stub(void) {
+static void test_config_validation(void) {
     net_service *svc = NULL;
-    CHECK(net_service_start(&svc, 0x0A00020Fu) == NET_ERR_UNSUPPORTED, "service start is a stub");
+    net_config cfg;
+
+    /* DHCP needs no static fields. */
+    cfg = (net_config){ NET_ADDR_DHCP, 0, 0, 0 };
+    CHECK(net_service_start(&svc, &cfg) == NET_ERR_UNSUPPORTED, "DHCP config accepted (stub)");
+    CHECK(svc != NULL, "service allocated for DHCP");
+    net_service_stop(svc);
+    svc = NULL;
+
+    /* Static needs an address and a netmask. */
+    cfg = (net_config){ NET_ADDR_STATIC, 0x0A00020Fu, 0xFFFFFF00u, 0x0A000201u };
+    CHECK(net_service_start(&svc, &cfg) == NET_ERR_UNSUPPORTED, "static config accepted (stub)");
+    net_service_stop(svc);
+    svc = NULL;
+    cfg = (net_config){ NET_ADDR_STATIC, 0, 0xFFFFFF00u, 0 };
+    CHECK(net_service_start(&svc, &cfg) == NET_ERR_INVALID, "static without address rejected");
+    CHECK(svc == NULL, "nothing allocated for a rejected config");
+    cfg = (net_config){ NET_ADDR_STATIC, 0x0A00020Fu, 0, 0 };
+    CHECK(net_service_start(&svc, &cfg) == NET_ERR_INVALID, "static without netmask rejected");
+
+    /* Both: DHCP first, so the static fallback must be complete. */
+    cfg = (net_config){ NET_ADDR_BOTH, 0x0A00020Fu, 0xFFFFFF00u, 0x0A000201u };
+    CHECK(net_service_start(&svc, &cfg) == NET_ERR_UNSUPPORTED, "both config accepted (stub)");
+    net_service_stop(svc);
+    svc = NULL;
+    cfg = (net_config){ NET_ADDR_BOTH, 0, 0, 0 };
+    CHECK(net_service_start(&svc, &cfg) == NET_ERR_INVALID, "both without static fallback rejected");
+
+    /* Unknown mode and null arguments. */
+    cfg = (net_config){ 99, 0, 0, 0 };
+    CHECK(net_service_start(&svc, &cfg) == NET_ERR_INVALID, "unknown mode rejected");
+    CHECK(net_service_start(&svc, NULL) == NET_ERR_INVALID, "null config rejected");
+    CHECK(net_service_start(NULL, &(net_config){ NET_ADDR_DHCP, 0, 0, 0 }) == NET_ERR_INVALID,
+          "null out pointer rejected");
+}
+
+static void test_socket_stubs(void) {
+    net_service *svc = NULL;
+    net_config cfg = { NET_ADDR_DHCP, 0, 0, 0 };
+    CHECK(net_service_start(&svc, &cfg) == NET_ERR_UNSUPPORTED, "service start is a stub");
     CHECK(svc != NULL, "service handle still allocated, so teardown can be tested");
     net_addr a = { 0x0A000001u, 7 };
     uint8_t buf[8] = { 0 };
@@ -59,9 +103,10 @@ static void test_service_stub(void) {
 }
 
 int main(void) {
-    test_driver_stub();
+    test_driver_stubs();
     test_stack_stub();
-    test_service_stub();
+    test_config_validation();
+    test_socket_stubs();
     if (failures) {
         fprintf(stderr, "test_stubs: %d failure(s)\n", failures);
         return 1;

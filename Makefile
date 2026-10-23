@@ -3,7 +3,7 @@ CC     ?= cc
 CFLAGS ?= -std=c11 -O2 -Wall -Wextra -Werror -Iinclude
 
 BUILD := build
-SRC   := src/driver/virtio_net_stub.c src/stack/stack_stub.c src/service/service_stub.c
+SRC   := src/driver/virtio_net_stub.c src/driver/wifi_stub.c src/stack/stack_stub.c src/service/service_stub.c
 
 all: $(BUILD)/libnet.a
 
