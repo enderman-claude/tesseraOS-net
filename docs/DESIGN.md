@@ -1,7 +1,8 @@
 # net: networking for tesseraOS
 
 Status: **plan with stubs**. Nothing here sends or receives a packet yet. Every stub returns
-`NET_ERR_UNSUPPORTED`, so callers can be written and tested before the real code exists.
+`NET_ERR_UNSUPPORTED`, so callers can be written and tested before the real code exists. Decisions
+are recorded below; the config check in `net_service_start` is real code.
 
 Master plan: enderman-claude/tesseraOS#1. Related: tessera `docs/spec/layers.md` (network is an
 L7 service that reaches hardware only through IPC), `docs/spec/driver_classes.md` (a network card
@@ -40,6 +41,8 @@ A sockets-style surface, so a libc port (oxinit, musl) can map `socket`, `bind`,
 | N3 | UDP sockets: send and receive | A UDP echo test in QEMU round-trips a datagram |
 | N4 | TCP: connect, send, receive, close | An HTTP GET to a host web server in QEMU returns its page |
 | N5 | Sockets API from apps, through the service | An Ember program (once the tessera ABI exists) makes a UDP round trip |
+| N6 | IPv6: neighbour discovery, SLAAC, ICMPv6 echo, UDP and TCP over IPv6 | `ping6` from the QEMU host gets a reply |
+| N7 | UPnP port mapping: SSDP discovery, SOAP AddPortMapping and DeletePortMapping on the QEMU router | A mapping added by tesseraOS shows in the router's list |
 
 ## Dependencies on tessera
 
@@ -50,19 +53,51 @@ A sockets-style surface, so a libc port (oxinit, musl) can map `socket`, `bind`,
 - Paging, so buffers have known physical addresses (M2 in the master plan).
 - IPC endpoints (L2) for the service interface.
 
-## Decisions (open)
+## Decisions
 
-1. **TCP/IP stack.** Write our own, or port an open-source stack? Proposed: port **lwIP** (BSD
-   licence, built for small embedded targets). It would be a submodule under `third_party/`, like zstd
-   in tessera. Our code would be the driver and the glue. Not decided.
-2. **Scope of the first real milestone.** Proposed: stop at N2 (ARP and ICMP) before any transport.
-3. **Socket model.** Sockets-style calls over IPC (proposed), or a raw frame API only?
-4. **Virtio transport.** Legacy virtio-pci (simpler, what QEMU defaults to with `-device virtio-net-pci`)
-   or modern virtio 1.0 with capabilities? Proposed: modern, since QEMU supports it.
-5. **Addressing.** Static IP from the manifest first, or DHCP at N2? Proposed: static first.
-6. **Who owns the device.** Only the net service, or can apps hold a raw NIC capability?
-   Proposed: only the net service.
-7. **Packet buffers.** Fixed pool allocated at start-up (proposed), or dynamic?
+Answers from the project owner, recorded here. Each is implemented in the stubs as noted.
+
+1. **Stack: leverage open source.** The IP stack is **lwIP 2.2.1** (BSD-3-Clause), pinned as a
+   submodule at `third_party/lwip`. Our code is the NIC driver, the glue to the service, and the
+   IPC interface. Integration starts at N2. Nothing is compiled from it yet.
+2. **Standards.** Confirmed: IPv4, IPv6, correct ports and UPnP port mapping over SOAP (see
+   Requirements). **Open:** the question asked how far the first real milestone goes; this answer
+   does not settle that. The first milestone stays at N2 until confirmed.
+3. **Socket model.** Sockets-style calls over IPC (`include/net/service.h`).
+4. **Hardware: generic first.** The generic target is virtio-net over modern virtio 1.x. Specific
+   hardware has stubs only, so the interface covers it, but no driver is written
+   (`src/driver/wifi_stub.c`). Wi-Fi is therefore "supported" at the interface level and not in
+   practice.
+5. **Addressing: static, DHCP, or both.** `enum net_addr_mode` has `STATIC`, `DHCP` and `BOTH`.
+   `BOTH` tries DHCP first and falls back to the static address. The mode comes from the manifest.
+   Config checks run at start-up (`net_service_start`).
+6. **Device ownership (my call).** Only the net service owns the NIC. Apps reach the network only
+   through socket calls over IPC. A raw device capability would let one app read another app's
+   traffic, and sockets cover every use the stack needs.
+7. **Packet buffers (my call).** A fixed pool allocated at start-up: 64 receive and 64 transmit
+   buffers of 2048 bytes (`include/net/net.h`). Fixed pools make memory use predictable and avoid
+   allocation in the receive path. The sizes are a starting point, to be revisited with the first
+   real driver.
+
+## Requirements (modern standards)
+
+Confirmed by the project owner: IPv4, IPv6, correct port handling, and router port mapping over
+SOAP. The reference for each part:
+
+| Area | Standard | Notes |
+|---|---|---|
+| IPv4 | RFC 791, host rules from RFC 1122 | Required |
+| IPv6 | RFC 8200 | Required. Neighbour discovery RFC 4861, SLAAC RFC 4862, ICMPv6 RFC 4443 |
+| DHCPv4 | RFC 2131 | Needed for DHCP and BOTH modes |
+| DHCPv6 | RFC 8415 | IPv6 addressing from a server. Later milestone |
+| TCP | RFC 9293 (obsoletes RFC 793) | Both families |
+| UDP | RFC 768 | Both families |
+| Ports | IANA registry, RFC 6335. Ephemeral 49152 to 65535 | `net_port_is_ephemeral`; bind with port 0 picks one |
+| Router mapping | UPnP Device Architecture 2.0: SSDP discovery (UDP 239.255.255.250:1900), then SOAP over HTTP on the IGD `WANIPConnection:1` or `:2` service | AddPortMapping, DeletePortMapping, GetExternalIPAddress |
+| Alternatives | NAT-PMP RFC 6886, PCP RFC 6887 | Only if a router has no UPnP. Not planned |
+
+The SOAP calls are the usual IGD actions: each is an XML envelope POSTed to the control URL found
+during SSDP discovery, with the `SOAPAction` header naming the service and the action.
 
 ## Tests
 

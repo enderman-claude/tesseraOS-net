@@ -1,4 +1,8 @@
-/* NIC driver interface (D1). One driver per device; the net service owns it. */
+/* NIC driver interface (D1). One driver per device; the net service owns it.
+ *
+ * Decision: target generic, standard hardware first. virtio-net (modern virtio 1.x) is the
+ * generic device. Specific hardware (for example Wi-Fi chipsets) has stubs only: the
+ * interface exists so the stack can be wired up, but no driver is written for it. */
 #ifndef NET_DRIVER_H
 #define NET_DRIVER_H
 
@@ -19,7 +23,11 @@ typedef struct net_driver {
     void *ctx;
 } net_driver;
 
-/* virtio-net stub. Its functions report NET_ERR_UNSUPPORTED until milestone N1. */
+/* Generic: virtio-net over modern virtio 1.x. Stub until milestone N1. */
 const net_driver *net_driver_virtio(void);
+
+/* Specific hardware: Wi-Fi. Stub only; every call reports NET_ERR_UNSUPPORTED and no
+ * chipset is supported. Present so the interface is fixed before any real driver. */
+const net_driver *net_driver_wifi_stub(void);
 
 #endif
