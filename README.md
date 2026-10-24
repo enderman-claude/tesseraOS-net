@@ -14,6 +14,8 @@ lands. See [docs/DESIGN.md](docs/DESIGN.md) for the layers, milestones (N0 to N5
 - [tesseraOS-teds](https://github.com/enderman-claude/tesseraOS-teds) and [tesseraOS-xteds](https://github.com/enderman-claude/tesseraOS-xteds): other L7 services written the same way (stubs first, then real code).
 - [oxinit](https://github.com/enderman-claude/oxinit): its control socket is local (Unix); it will use this service only once sockets exist on tesseraOS.
 
+*Footnote: the network stack is very private. It has no packets to share yet.*
+
 ## License
 
 Not yet chosen.
