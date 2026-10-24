@@ -41,6 +41,8 @@ A sockets-style surface, so a libc port (oxinit, musl) can map `socket`, `bind`,
 | N3 | UDP sockets: send and receive | A UDP echo test in QEMU round-trips a datagram |
 | N4 | TCP: connect, send, receive, close | An HTTP GET to a host web server in QEMU returns its page |
 | N5 | Sockets API from apps, through the service | An Ember program (once the tessera ABI exists) makes a UDP round trip |
+| N6 | IPv6: neighbour discovery, SLAAC, ICMPv6 echo, UDP and TCP over IPv6 | `ping6` from the QEMU host gets a reply |
+| N7 | UPnP port mapping: SSDP discovery, SOAP AddPortMapping and DeletePortMapping on the QEMU router | A mapping added by tesseraOS shows in the router's list |
 
 ## Dependencies on tessera
 
@@ -58,10 +60,9 @@ Answers from the project owner, recorded here. Each is implemented in the stubs 
 1. **Stack: leverage open source.** The IP stack is **lwIP 2.2.1** (BSD-3-Clause), pinned as a
    submodule at `third_party/lwip`. Our code is the NIC driver, the glue to the service, and the
    IPC interface. Integration starts at N2. Nothing is compiled from it yet.
-2. **Standards.** "Whatever meets modern standards" is recorded as the requirement on the stack.
-   **To confirm:** the question asked for the scope of the first milestone (see below), and this
-   answer does not settle that. Until it is confirmed, the first real milestone stays at N2, as
-   proposed.
+2. **Standards.** Confirmed: IPv4, IPv6, correct ports and UPnP port mapping over SOAP (see
+   Requirements). **Open:** the question asked how far the first real milestone goes; this answer
+   does not settle that. The first milestone stays at N2 until confirmed.
 3. **Socket model.** Sockets-style calls over IPC (`include/net/service.h`).
 4. **Hardware: generic first.** The generic target is virtio-net over modern virtio 1.x. Specific
    hardware has stubs only, so the interface covers it, but no driver is written
@@ -77,6 +78,26 @@ Answers from the project owner, recorded here. Each is implemented in the stubs 
    buffers of 2048 bytes (`include/net/net.h`). Fixed pools make memory use predictable and avoid
    allocation in the receive path. The sizes are a starting point, to be revisited with the first
    real driver.
+
+## Requirements (modern standards)
+
+Confirmed by the project owner: IPv4, IPv6, correct port handling, and router port mapping over
+SOAP. The reference for each part:
+
+| Area | Standard | Notes |
+|---|---|---|
+| IPv4 | RFC 791, host rules from RFC 1122 | Required |
+| IPv6 | RFC 8200 | Required. Neighbour discovery RFC 4861, SLAAC RFC 4862, ICMPv6 RFC 4443 |
+| DHCPv4 | RFC 2131 | Needed for DHCP and BOTH modes |
+| DHCPv6 | RFC 8415 | IPv6 addressing from a server. Later milestone |
+| TCP | RFC 9293 (obsoletes RFC 793) | Both families |
+| UDP | RFC 768 | Both families |
+| Ports | IANA registry, RFC 6335. Ephemeral 49152 to 65535 | `net_port_is_ephemeral`; bind with port 0 picks one |
+| Router mapping | UPnP Device Architecture 2.0: SSDP discovery (UDP 239.255.255.250:1900), then SOAP over HTTP on the IGD `WANIPConnection:1` or `:2` service | AddPortMapping, DeletePortMapping, GetExternalIPAddress |
+| Alternatives | NAT-PMP RFC 6886, PCP RFC 6887 | Only if a router has no UPnP. Not planned |
+
+The SOAP calls are the usual IGD actions: each is an XML envelope POSTed to the control URL found
+during SSDP discovery, with the `SOAPAction` header naming the service and the action.
 
 ## Tests
 
